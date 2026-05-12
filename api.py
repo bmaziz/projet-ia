@@ -120,7 +120,7 @@ async def startup():
     vectorstore = FAISS.from_documents(chunks, embeddings)
     retriever = vectorstore.as_retriever(search_kwargs={"k": TOP_K})
 
-    llm = ChatGroq(model=GROQ_MODEL, temperature=0, api_key=groq_api_key)
+    llm = ChatGroq(model=GROQ_MODEL, temperature=1, api_key=groq_api_key)
 
     template = """
 Tu es un assistant médical spécialisé en pharmacologie.
@@ -128,7 +128,6 @@ Tu dois répondre uniquement à partir du contexte fourni.
 
 Consignes :
 - Réponds en français.
-- Si l'information est absente, dis : "Je ne trouve pas cette information dans les documents fournis."
 - Réponse claire, structurée et concise.
 - Termine par "Sources :" avec les fichiers utilisés.
 
