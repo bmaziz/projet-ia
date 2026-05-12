@@ -1,17 +1,20 @@
+import json
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import FAISS
+from langchain_core.documents import Document
 from langchain_core.prompts import PromptTemplate
 from langchain_groq import ChatGroq
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+
 DATA_DIR = Path("data")
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 150
 TOP_K = 3
@@ -19,12 +22,6 @@ TOP_K = 3
 
 def load_pdf_documents(data_dir: Path):
     pdf_paths = sorted(data_dir.glob("*.pdf"))
-
-    if not pdf_paths:
-        raise FileNotFoundError(
-            "Aucun PDF trouve dans le dossier 'data'."
-        )
-
     documents = []
 
     for pdf_path in pdf_paths:
@@ -35,6 +32,37 @@ def load_pdf_documents(data_dir: Path):
             page.metadata["source"] = pdf_path.name
 
         documents.extend(pages)
+
+    return documents
+
+
+def load_json_documents(data_dir: Path):
+    json_paths = sorted(data_dir.glob("*.json"))
+    documents = []
+
+    for json_path in json_paths:
+        with open(json_path, encoding="utf-8") as f:
+            medicaments = json.load(f)
+
+        for med in medicaments:
+            interactions = ", ".join(med.get("interactions", []))
+            voies = ", ".join(med.get("voie_administration", []))
+            content = (
+                f"Médicament : {med.get('denomination', '')}\n"
+                f"Substance active : {med.get('substance_active', '')}\n"
+                f"Forme : {med.get('forme', '')}\n"
+                f"Voie d'administration : {voies}\n"
+                f"Statut AMM : {med.get('statut_amm', '')}\n"
+                f"Indications : {med.get('indications', '')}\n"
+                f"Contre-indications : {med.get('contre_indications', '')}\n"
+                f"Effets indésirables : {med.get('effets_indesirables', '')}\n"
+                f"Posologie : {med.get('posologie', '')}\n"
+                f"Interactions : {interactions}"
+            )
+            documents.append(Document(
+                page_content=content,
+                metadata={"source": json_path.name, "id": med.get("_id", "")}
+            ))
 
     return documents
 
@@ -55,7 +83,7 @@ def create_vectorstore(chunks):
 
 def build_prompt():
     template = """
-Tu es un assistant pedagogique specialise en IA generative.
+Tu es un assistant medical specialise en pharmacologie.
 Tu dois repondre uniquement a partir du contexte fourni.
 
 Consignes importantes :
@@ -131,9 +159,9 @@ def main():
             "La variable GROQ_API_KEY est absente."
         )
 
-    print("Chargement des PDF...")
-    documents = load_pdf_documents(DATA_DIR)
-    print(f"Nombre total de pages chargees : {len(documents)}")
+    print("Chargement des documents...")
+    documents = load_pdf_documents(DATA_DIR) + load_json_documents(DATA_DIR)
+    print(f"Nombre total de documents charges : {len(documents)}")
 
     print("Decoupage en chunks...")
     chunks = split_documents(documents)
@@ -169,7 +197,7 @@ def main():
 
         print("\n--- Reponse ---")
         print(answer)
-
+"""
         print("\n--- Chunks recuperes ---")
         for i, doc in enumerate(docs, start=1):
             source = doc.metadata.get("source", "source_inconnue")
@@ -183,7 +211,7 @@ def main():
             print(f" {preview}...")
 
         print()
-
+"""
 
 if __name__ == "__main__":
     main()

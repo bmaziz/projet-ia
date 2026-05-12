@@ -1,4 +1,5 @@
 .env
-rag_pdf_groq.py
-README.md
-.venv/
+venv/
+__pycache__/
+*.pyc
+frontend/node_modules/
