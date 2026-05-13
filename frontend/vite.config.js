@@ -7,6 +7,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/ask': 'http://localhost:8001',
+      '/pdf': 'http://localhost:8001',
     },
   },
 })

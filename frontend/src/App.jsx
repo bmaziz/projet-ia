@@ -27,6 +27,17 @@ function Message({ msg, onSpeak, speaking, speakingId }) {
           {msg.text.split('\n').map((line, i) => (
             <span key={i}>{line}{i < msg.text.split('\n').length - 1 && <br />}</span>
           ))}
+          {msg.pdfId && (
+            <a
+              className="pdf-btn"
+              href={`/pdf/${msg.pdfId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              download
+            >
+              📄 Télécharger le PDF
+            </a>
+          )}
         </div>
         <div className="msg-meta">
           <span className="timestamp">{formatTime(msg.ts)}</span>
@@ -146,6 +157,7 @@ export default function App() {
   const [listening, setListening] = useState(false)
   const [speaking, setSpeaking] = useState(false)
   const [speakingId, setSpeakingId] = useState(null)
+  const lastMedIdRef = useRef(null)
 
   const bottomRef = useRef(null)
   const recognitionRef = useRef(null)
@@ -227,10 +239,11 @@ export default function App() {
       const res = await fetch('/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question, last_med_id: lastMedIdRef.current }),
       })
       const data = await res.json()
-      const assistantMsg = { id: Date.now().toString(), role: 'assistant', text: data.answer, ts: Date.now() }
+      if (data.last_med_id) lastMedIdRef.current = data.last_med_id
+      const assistantMsg = { id: Date.now().toString(), role: 'assistant', text: data.answer, pdfId: data.pdf_id || null, ts: Date.now() }
       updateConv(activeId, c => ({ ...c, messages: [...c.messages, assistantMsg] }))
     } catch {
       const errMsg = { id: Date.now().toString(), role: 'assistant', text: '❌ Erreur de connexion au serveur.', ts: Date.now() }
