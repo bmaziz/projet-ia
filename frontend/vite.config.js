@@ -8,6 +8,7 @@ export default defineConfig({
     proxy: {
       '/ask': 'http://localhost:8001',
       '/pdf': 'http://localhost:8001',
+      '/compare': 'http://localhost:8001',
     },
   },
 })

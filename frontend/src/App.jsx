@@ -3,6 +3,70 @@ import './App.css'
 
 const WELCOME = 'Bonjour ! 👋 Je suis votre assistant médical spécialisé en pharmacologie. Posez-moi une question sur un médicament, ses effets, sa posologie ou ses interactions.'
 
+const FIELD_LABELS = {
+  denomination: 'Médicament',
+  substance_active: 'Substance active',
+  forme: 'Forme',
+  indications: 'Indications',
+  posologie: 'Posologie',
+  contre_indications: 'Contre-indications',
+  effets_indesirables: 'Effets indésirables',
+}
+
+function CompareTable({ compareIds }) {
+  const [data, setData] = useState(null)
+
+  useEffect(() => {
+    fetch(`/compare?id1=${compareIds[0]}&id2=${compareIds[1]}`)
+      .then(r => r.json())
+      .then(setData)
+  }, [compareIds])
+
+  if (!data) return <div className="compare-loading">Chargement de la comparaison…</div>
+
+  return (
+    <div className="compare-table">
+      <table>
+        <thead>
+          <tr>
+            <th>Critère</th>
+            <th>💊 {data.med1.denomination}</th>
+            <th>💊 {data.med2.denomination}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {Object.entries(FIELD_LABELS).filter(([k]) => k !== 'denomination').map(([key, label]) => (
+            <tr key={key}>
+              <td className="criteria">{label}</td>
+              <td>{data.med1[key] || '-'}</td>
+              <td>{data.med2[key] || '-'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function InteractionAlert({ interactions }) {
+  return (
+    <div className="interactions-wrap">
+      {interactions.map((item, i) => (
+        <div key={i} className={`interaction-alert ${item.dangerous ? 'danger' : 'safe'}`}>
+          <span className="alert-icon">{item.dangerous ? '⚠️' : '✅'}</span>
+          <div>
+            <strong>{item.med_a}</strong> + <strong>{item.med_b}</strong>
+            <p>{item.dangerous
+              ? 'Interaction dangereuse détectée ! Consultez un médecin avant de combiner ces médicaments.'
+              : 'Aucune interaction directe détectée dans notre base de données.'}
+            </p>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function formatTime(ts) {
   return new Date(ts).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 }
@@ -28,16 +92,12 @@ function Message({ msg, onSpeak, speaking, speakingId }) {
             <span key={i}>{line}{i < msg.text.split('\n').length - 1 && <br />}</span>
           ))}
           {msg.pdfId && (
-            <a
-              className="pdf-btn"
-              href={`/pdf/${msg.pdfId}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              download
-            >
+            <a className="pdf-btn" href={`/pdf/${msg.pdfId}`} target="_blank" rel="noopener noreferrer" download>
               📄 Télécharger le PDF
             </a>
           )}
+          {msg.compareIds && <CompareTable compareIds={msg.compareIds} />}
+          {msg.interactions && <InteractionAlert interactions={msg.interactions} />}
         </div>
         <div className="msg-meta">
           <span className="timestamp">{formatTime(msg.ts)}</span>
@@ -243,7 +303,15 @@ export default function App() {
       })
       const data = await res.json()
       if (data.last_med_id) lastMedIdRef.current = data.last_med_id
-      const assistantMsg = { id: Date.now().toString(), role: 'assistant', text: data.answer, pdfId: data.pdf_id || null, ts: Date.now() }
+      const assistantMsg = {
+        id: Date.now().toString(),
+        role: 'assistant',
+        text: data.answer || '',
+        pdfId: data.pdf_id || null,
+        compareIds: data.compare_ids || null,
+        interactions: data.interactions || null,
+        ts: Date.now()
+      }
       updateConv(activeId, c => ({ ...c, messages: [...c.messages, assistantMsg] }))
     } catch {
       const errMsg = { id: Date.now().toString(), role: 'assistant', text: '❌ Erreur de connexion au serveur.', ts: Date.now() }

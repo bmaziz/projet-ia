@@ -161,10 +161,59 @@ def format_sources(docs):
     return ", ".join(seen)
 
 
-PDF_KEYWORDS = ["pdf", "génère", "genere", "générer", "générer", "fiche", "document", "télécharger", "telecharger"]
+COMPARE_KEYWORDS = ["compare", "comparer", "différence", "difference", "versus", "vs", "entre"]
+INTERACTION_KEYWORDS = ["interaction", "dangereux", "danger", "prends", "prendre", "associer", "ensemble", "compatible", "incompatible"]
+PDF_KEYWORDS = ["pdf", "génère", "genere", "générer", "fiche", "document", "télécharger", "telecharger"]
 
 
-def detect_pdf_request(question: str, last_med_id: str = None):
+def find_med_in_text(q: str, meds: list):
+    """Retourne tous les médicaments trouvés dans le texte."""
+    found = []
+    for med in meds:
+        name = med.get("denomination", "").lower()
+        substance = med.get("substance_active", "").lower()
+        if (name and name.split()[0] in q) or (substance and substance in q):
+            if med["_id"] not in [f["_id"] for f in found]:
+                found.append(med)
+    return found
+
+
+def detect_compare_request(question: str):
+    q = question.lower()
+    if not any(k in q for k in COMPARE_KEYWORDS):
+        return None
+    client = MongoClient(MONGO_URI)
+    meds = list(client[MONGO_DB]["medicaments_vectors"].find({}, {"denomination": 1, "substance_active": 1}))
+    client.close()
+    found = find_med_in_text(q, meds)
+    return [m["_id"] for m in found[:2]] if len(found) >= 2 else None
+
+
+def detect_interaction_request(question: str):
+    q = question.lower()
+    if not any(k in q for k in INTERACTION_KEYWORDS):
+        return None
+    client = MongoClient(MONGO_URI)
+    meds = list(client[MONGO_DB]["medicaments_vectors"].find({}, {"denomination": 1, "substance_active": 1, "interactions": 1}))
+    client.close()
+    found = find_med_in_text(q, meds)
+    if len(found) < 2:
+        return None
+    # Vérifier si l'un interagit avec l'autre
+    alerts = []
+    for i, med_a in enumerate(found):
+        for med_b in found[i+1:]:
+            name_b = med_b.get("denomination", "").lower()
+            substance_b = med_b.get("substance_active", "").lower()
+            interactions_a = [x.lower() for x in med_a.get("interactions", [])]
+            if any(name_b.split()[0] in inter or substance_b in inter for inter in interactions_a):
+                alerts.append({"med_a": med_a["denomination"], "med_b": med_b["denomination"], "dangerous": True})
+            else:
+                alerts.append({"med_a": med_a["denomination"], "med_b": med_b["denomination"], "dangerous": False})
+    return alerts if alerts else None
+
+
+def detect_pdf_request(question: str, last_med_id: str | None = None):
     q = question.lower()
     if not any(k in q for k in PDF_KEYWORDS):
         return None
@@ -263,15 +312,28 @@ class QuestionRequest(BaseModel):
 
 @app.post("/ask")
 async def ask(body: QuestionRequest):
+    # Détection interaction dangereuse
+    interaction_alerts = detect_interaction_request(body.question)
+    if interaction_alerts is not None:
+        docs = retrieve(body.question)
+        context = format_context(docs)
+        final_prompt = prompt.format(context=context, question=body.question)
+        response = llm.invoke(final_prompt).content
+        return {"answer": response, "interactions": interaction_alerts, "last_med_id": body.last_med_id}
+
+    # Détection comparaison
+    compare_ids = detect_compare_request(body.question)
+    if compare_ids:
+        return {"answer": "", "compare_ids": compare_ids}
+
+    # Détection PDF
     med_id = detect_pdf_request(body.question, body.last_med_id)
     if med_id:
         return {"answer": "📄 Votre fiche PDF est prête !", "pdf_id": med_id}
 
     docs = retrieve(body.question)
-    # Extraire le médicament le plus pertinent pour le contexte suivant
     top_med_id = next(
-        (d["metadata"]["id"] for d in docs if d["metadata"].get("source") == "mongodb"),
-        None
+        (d["metadata"]["id"] for d in docs if d["metadata"].get("source") == "mongodb"), None
     )
     context = format_context(docs)
     sources = format_sources(docs)
@@ -280,6 +342,19 @@ async def ask(body: QuestionRequest):
     if "Sources :" not in response:
         response = response.strip() + f"\n\nSources : {sources}"
     return {"answer": response, "sources": sources, "last_med_id": top_med_id}
+
+
+@app.get("/compare")
+async def compare(id1: str, id2: str):
+    client = MongoClient(MONGO_URI)
+    fields = {"embedding": 0, "text": 0}
+    med1 = client[MONGO_DB]["medicaments_vectors"].find_one({"_id": id1}, fields)
+    med2 = client[MONGO_DB]["medicaments_vectors"].find_one({"_id": id2}, fields)
+    client.close()
+    if not med1 or not med2:
+        return {"error": "Médicament introuvable"}
+    rows = ["denomination", "substance_active", "forme", "indications", "posologie", "contre_indications", "effets_indesirables"]
+    return {"med1": {r: med1.get(r, "-") for r in rows}, "med2": {r: med2.get(r, "-") for r in rows}}
 
 
 @app.get("/pdf/{med_id}")

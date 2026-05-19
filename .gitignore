@@ -3,4 +3,4 @@ venv/
 __pycache__/
 *.pyc
 import_to_mongo.py
-frontend/
+frontend/node_modules/
